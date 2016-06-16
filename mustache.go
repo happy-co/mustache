@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"reflect"
+	"regexp"
 	"strings"
 )
 
@@ -22,6 +23,13 @@ type varElement struct {
 	raw  bool
 }
 
+type filterFunc func(args []string) string
+
+type filterElement struct {
+	filter   filterFunc
+	argElems []*varElement
+}
+
 type sectionElement struct {
 	name      string
 	inverted  bool
@@ -31,6 +39,7 @@ type sectionElement struct {
 
 type Template struct {
 	data    string
+	filters map[string]filterFunc
 	otag    string
 	ctag    string
 	p       int
@@ -127,6 +136,24 @@ func (tmpl *Template) parsePartial(name string) (*Template, error) {
 	return partial, nil
 }
 
+func (tmpl *Template) parseVarOrFuncTag(tag string, raw bool) (interface{}, error) {
+	var regexp = regexp.MustCompile(`^\s*([a-zA-Z0-9_]+)\(([a-zA-Z0-9_,\s\.]*)\)\s*$`)
+	match := regexp.FindStringSubmatch(tag)
+	if match == nil {
+		return &varElement{tag, raw}, nil
+	}
+	argElems := []*varElement{}
+	for _, arg := range strings.Split(match[2], ",") {
+		ve := varElement{strings.TrimSpace(arg), raw}
+		argElems = append(argElems, &ve)
+	}
+	filter, ok := tmpl.filters[match[1]]
+	if !ok {
+		return nil, parseError{tmpl.curline, fmt.Sprintf("unknown func: %v", match[1])}
+	}
+	return &filterElement{filter, argElems}, nil
+}
+
 func (tmpl *Template) parseSection(section *sectionElement) error {
 	for {
 		text, err := tmpl.readString(tmpl.otag)
@@ -202,10 +229,18 @@ func (tmpl *Template) parseSection(section *sectionElement) error {
 		case '{':
 			if tag[len(tag)-1] == '}' {
 				//use a raw tag
-				section.elems = append(section.elems, &varElement{tag[1 : len(tag)-1], true})
+				elem, err := tmpl.parseVarOrFuncTag(tag[1:len(tag)-1], true)
+				if err != nil {
+					return err
+				}
+				section.elems = append(section.elems, elem)
 			}
 		default:
-			section.elems = append(section.elems, &varElement{tag, false})
+			elem, err := tmpl.parseVarOrFuncTag(tag, false)
+			if err != nil {
+				return err
+			}
+			section.elems = append(section.elems, elem)
 		}
 	}
 
@@ -282,10 +317,18 @@ func (tmpl *Template) parse() error {
 		case '{':
 			//use a raw tag
 			if tag[len(tag)-1] == '}' {
-				tmpl.elems = append(tmpl.elems, &varElement{tag[1 : len(tag)-1], true})
+				elem, err := tmpl.parseVarOrFuncTag(tag[1:len(tag)-1], true)
+				if err != nil {
+					return err
+				}
+				tmpl.elems = append(tmpl.elems, elem)
 			}
 		default:
-			tmpl.elems = append(tmpl.elems, &varElement{tag, false})
+			elem, err := tmpl.parseVarOrFuncTag(tag, false)
+			if err != nil {
+				return err
+			}
+			tmpl.elems = append(tmpl.elems, elem)
 		}
 	}
 
@@ -436,6 +479,16 @@ loop:
 	return v
 }
 
+func renderFilter(filter *filterElement, contextChain []interface{}, buf io.Writer) {
+	var args = []string{}
+	for _, argElem := range filter.argElems {
+		var argBuf bytes.Buffer
+		renderElement(argElem, contextChain, &argBuf)
+		args = append(args, argBuf.String())
+	}
+	fmt.Fprint(buf, filter.filter(args))
+}
+
 func renderSection(section *sectionElement, contextChain []interface{}, buf io.Writer) {
 	value := lookup(contextChain, section.name)
 	var context = contextChain[len(contextChain)-1].(reflect.Value)
@@ -495,6 +548,8 @@ func renderElement(element interface{}, contextChain []interface{}, buf io.Write
 				template.HTMLEscape(buf, []byte(s))
 			}
 		}
+	case *filterElement:
+		renderFilter(elem, contextChain, buf)
 	case *sectionElement:
 		renderSection(elem, contextChain, buf)
 	case *Template:
@@ -527,9 +582,9 @@ func (tmpl *Template) RenderInLayout(layout *Template, context ...interface{}) s
 	return layout.Render(allContext...)
 }
 
-func ParseString(data string) (*Template, error) {
+func ParseString(data string, filters map[string]filterFunc) (*Template, error) {
 	cwd := os.Getenv("CWD")
-	tmpl := Template{data, "{{", "}}", 0, 1, cwd, []interface{}{}}
+	tmpl := Template{data, filters, "{{", "}}", 0, 1, cwd, []interface{}{}}
 	err := tmpl.parse()
 
 	if err != nil {
@@ -547,7 +602,7 @@ func ParseFile(filename string) (*Template, error) {
 
 	dirname, _ := path.Split(filename)
 
-	tmpl := Template{string(data), "{{", "}}", 0, 1, dirname, []interface{}{}}
+	tmpl := Template{string(data), nil, "{{", "}}", 0, 1, dirname, []interface{}{}}
 	err = tmpl.parse()
 
 	if err != nil {
@@ -557,20 +612,20 @@ func ParseFile(filename string) (*Template, error) {
 	return &tmpl, nil
 }
 
-func Render(data string, context ...interface{}) string {
-	tmpl, err := ParseString(data)
+func Render(data string, filters map[string]filterFunc, context ...interface{}) string {
+	tmpl, err := ParseString(data, filters)
 	if err != nil {
 		return err.Error()
 	}
 	return tmpl.Render(context...)
 }
 
-func RenderInLayout(data string, layoutData string, context ...interface{}) string {
-	layoutTmpl, err := ParseString(layoutData)
+func RenderInLayout(data string, layoutData string, filters map[string]filterFunc, context ...interface{}) string {
+	layoutTmpl, err := ParseString(layoutData, filters)
 	if err != nil {
 		return err.Error()
 	}
-	tmpl, err := ParseString(data)
+	tmpl, err := ParseString(data, filters)
 	if err != nil {
 		return err.Error()
 	}

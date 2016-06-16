@@ -177,7 +177,32 @@ var tests = []Test{
 
 func TestBasic(t *testing.T) {
 	for _, test := range tests {
-		output := Render(test.tmpl, test.context)
+		output := Render(test.tmpl, nil, test.context)
+		if output != test.expected {
+			t.Fatalf("%q expected %q got %q", test.tmpl, test.expected, output)
+		}
+	}
+}
+
+var funcTests = []Test{
+	{`{{ upper(a) }}`, map[string]string{"a": "a"}, "A"},
+	{`{{ upper(a.b) }}`, map[string]interface{}{"a": map[string]string{"b": "b"}}, "B"},
+	{`{{ concat(a, b.c, d) }}`, map[string]interface{}{"a": "hello", "b": map[string]string{"c": " "}, "d": "world"}, "hello world"},
+	{`{{ concat(a, b) }}`, map[string]string{"a": "<", "b": ">"}, "&lt;&gt;"},
+	{`{{{ concat(a, b) }}}`, map[string]string{"a": "<", "b": ">"}, "<>"},
+}
+
+func TestFunc(t *testing.T) {
+	filters := map[string]filterFunc{
+		"upper": func(args []string) string {
+			return strings.ToUpper(args[0])
+		},
+		"concat": func(args []string) string {
+			return strings.Join(args, "")
+		},
+	}
+	for _, test := range funcTests {
+		output := Render(test.tmpl, filters, test.context)
 		if output != test.expected {
 			t.Fatalf("%q expected %q got %q", test.tmpl, test.expected, output)
 		}
@@ -215,8 +240,8 @@ func TestSectionPartial(t *testing.T) {
 }
 */
 func TestMultiContext(t *testing.T) {
-	output := Render(`{{hello}} {{World}}`, map[string]string{"hello": "hello"}, struct{ World string }{"world"})
-	output2 := Render(`{{hello}} {{World}}`, struct{ World string }{"world"}, map[string]string{"hello": "hello"})
+	output := Render(`{{hello}} {{World}}`, nil, map[string]string{"hello": "hello"}, struct{ World string }{"world"})
+	output2 := Render(`{{hello}} {{World}}`, nil, struct{ World string }{"world"}, map[string]string{"hello": "hello"})
 	if output != "hello world" || output2 != "hello world" {
 		t.Fatalf("TestMultiContext expected %q got %q", "hello world", output)
 	}
@@ -231,7 +256,7 @@ var malformed = []Test{
 
 func TestMalformed(t *testing.T) {
 	for _, test := range malformed {
-		output := Render(test.tmpl, test.context)
+		output := Render(test.tmpl, nil, test.context)
 		if strings.Index(output, test.expected) == -1 {
 			t.Fatalf("%q expected %q in error %q", test.tmpl, test.expected, output)
 		}
@@ -255,7 +280,7 @@ var layoutTests = []LayoutTest{
 
 func TestLayout(t *testing.T) {
 	for _, test := range layoutTests {
-		output := RenderInLayout(test.tmpl, test.layout, test.context)
+		output := RenderInLayout(test.tmpl, test.layout, nil, test.context)
 		if output != test.expected {
 			t.Fatalf("%q expected %q got %q", test.tmpl, test.expected, output)
 		}
