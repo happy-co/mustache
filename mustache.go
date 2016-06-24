@@ -140,7 +140,7 @@ func (tmpl *Template) parseVarOrFuncTag(tag string, raw bool) (interface{}, erro
 	var regexp = regexp.MustCompile(`^\s*([a-zA-Z0-9_]+)\(([a-zA-Z0-9_,\s\.]*)\)\s*$`)
 	match := regexp.FindStringSubmatch(tag)
 	if match == nil {
-		return &varElement{tag, raw}, nil
+		return &varElement{strings.TrimSpace(tag), raw}, nil
 	}
 	argElems := []*varElement{}
 	for _, arg := range strings.Split(match[2], ",") {
@@ -188,13 +188,6 @@ func (tmpl *Template) parseSection(section *sectionElement) error {
 			break
 		case '#', '^':
 			name := strings.TrimSpace(tag[1:])
-
-			//ignore the newline when a section starts
-			if len(tmpl.data) > tmpl.p && tmpl.data[tmpl.p] == '\n' {
-				tmpl.p += 1
-			} else if len(tmpl.data) > tmpl.p+1 && tmpl.data[tmpl.p] == '\r' && tmpl.data[tmpl.p+1] == '\n' {
-				tmpl.p += 2
-			}
 
 			se := sectionElement{name, tag[0] == '^', tmpl.curline, []interface{}{}}
 			err := tmpl.parseSection(&se)
@@ -282,12 +275,6 @@ func (tmpl *Template) parse() error {
 			break
 		case '#', '^':
 			name := strings.TrimSpace(tag[1:])
-
-			if len(tmpl.data) > tmpl.p && tmpl.data[tmpl.p] == '\n' {
-				tmpl.p += 1
-			} else if len(tmpl.data) > tmpl.p+1 && tmpl.data[tmpl.p] == '\r' && tmpl.data[tmpl.p+1] == '\n' {
-				tmpl.p += 2
-			}
 
 			se := sectionElement{name, tag[0] == '^', tmpl.curline, []interface{}{}}
 			err := tmpl.parseSection(&se)
