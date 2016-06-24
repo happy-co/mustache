@@ -193,7 +193,7 @@ var funcTests = []Test{
 }
 
 func TestFunc(t *testing.T) {
-	filters := map[string]filterFunc{
+	filters := map[string]FilterFunc{
 		"upper": func(args []string) string {
 			return strings.ToUpper(args[0])
 		},

@@ -14,6 +14,8 @@ import (
 	"strings"
 )
 
+type FilterFunc func(args []string) string
+
 type textElement struct {
 	text []byte
 }
@@ -23,10 +25,8 @@ type varElement struct {
 	raw  bool
 }
 
-type filterFunc func(args []string) string
-
 type filterElement struct {
-	filter   filterFunc
+	filter   FilterFunc
 	argElems []*varElement
 }
 
@@ -39,7 +39,7 @@ type sectionElement struct {
 
 type Template struct {
 	data    string
-	filters map[string]filterFunc
+	filters map[string]FilterFunc
 	otag    string
 	ctag    string
 	p       int
@@ -582,7 +582,7 @@ func (tmpl *Template) RenderInLayout(layout *Template, context ...interface{}) s
 	return layout.Render(allContext...)
 }
 
-func ParseString(data string, filters map[string]filterFunc) (*Template, error) {
+func ParseString(data string, filters map[string]FilterFunc) (*Template, error) {
 	cwd := os.Getenv("CWD")
 	tmpl := Template{data, filters, "{{", "}}", 0, 1, cwd, []interface{}{}}
 	err := tmpl.parse()
@@ -612,7 +612,7 @@ func ParseFile(filename string) (*Template, error) {
 	return &tmpl, nil
 }
 
-func Render(data string, filters map[string]filterFunc, context ...interface{}) string {
+func Render(data string, filters map[string]FilterFunc, context ...interface{}) string {
 	tmpl, err := ParseString(data, filters)
 	if err != nil {
 		return err.Error()
@@ -620,7 +620,7 @@ func Render(data string, filters map[string]filterFunc, context ...interface{}) 
 	return tmpl.Render(context...)
 }
 
-func RenderInLayout(data string, layoutData string, filters map[string]filterFunc, context ...interface{}) string {
+func RenderInLayout(data string, layoutData string, filters map[string]FilterFunc, context ...interface{}) string {
 	layoutTmpl, err := ParseString(layoutData, filters)
 	if err != nil {
 		return err.Error()
